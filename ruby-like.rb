@@ -24,7 +24,7 @@ class WindowManager
   end
 
   def erase_windows
-    @game.clear
+    #@game.clear
     @hud.clear
     @game.border(*([0]*8))
     @hud.border(*([0]*8))
@@ -56,11 +56,10 @@ class WindowManager
     end
   end
 
-  def draw_game(terrain_hash, entities)
-    draw_terrain(terrain_hash)
-    draw_entities(entities)
+  def draw_game()
+    draw_terrain()
+    draw_entities()
   end
-  #  FIND A WAY TO DRAW EVERYTHING OFFSET BY "CAMERA" POSITION
 
   def draw_terrain()
     for y in 1...(GAME_HEIGHT + 1)
@@ -70,10 +69,11 @@ class WindowManager
     end
   end
 
-  #Remember to add +CAMERA.position
   def draw_tile(x, y)
     if MAP[Vector[x,y] + CAMERA.position] == nil
+      @game.attron(Ncurses.COLOR_PAIR(99))
       @game.mvaddstr(y, x, TILES[0])
+      @game.attroff(Ncurses.COLOR_PAIR(99))
     else
       tile_type = MAP[Vector[x,y] + CAMERA.position].type
       @game.attron(Ncurses.COLOR_PAIR(tile_type))
@@ -81,25 +81,6 @@ class WindowManager
       @game.attroff(Ncurses.COLOR_PAIR(tile_type))
     end
   end
-
-  #def draw_terrain(terrain_hash)
-  #  terrain_hash.each do |position, tile|
-  #    case tile.type
-  #    when 0
-  #      @game.mvaddch(position[1],position[0], 32)
-  #    when 1
-  #      @game.attron(Ncurses.COLOR_PAIR(1))
-  #      @game.mvaddstr(position[1],position[0], "░".to_s)
-  #      @game.attroff(Ncurses.COLOR_PAIR(1))
-  #    when 2
-  #      @game.attron(Ncurses.COLOR_PAIR(2))
-  #      @game.mvaddstr(position[1],position[0], "░".to_s)
-  #      @game.attroff(Ncurses.COLOR_PAIR(2))
-  #    else
-  #      @game.mvaddch(position[1],position[0], 32)
-  #    end
-  #  end
-  #end
 
   def draw_entities(entities)
     for i in 0...entities.length
@@ -129,6 +110,21 @@ class Camera
     @buffer_x = buffer_x
     @buffer_y = buffer_y
   end
+
+  def update()
+    if PLAYER.position[0] - CAMERA.position[0] <= CAMERA.buffer_x
+      CAMERA.position -= Vector[1,0]
+    end
+    if PLAYER.position[1] - CAMERA.position[1] <= CAMERA.buffer_x
+      CAMERA.position -= Vector[0,1]
+    end
+    if GAME_WIDTH - PLAYER.position[0] + CAMERA.position[0] <= CAMERA.buffer_x
+      CAMERA.position += Vector[1,0]
+    end
+    if GAME_HEIGHT - PLAYER.position[1] + CAMERA.position[1] <= CAMERA.buffer_x
+      CAMERA.position += Vector[0,1]
+    end
+  end
 end
 
 class Position
@@ -144,8 +140,8 @@ class Terrain
   attr_accessor :terrain_hash
   def initialize()
     @terrain_hash = Hash.new
-    for y in 1...(GAME_HEIGHT + 1)
-      for x in 1...(GAME_WIDTH + 1)
+    for y in 1...(200)
+      for x in 1...(200)
         @terrain_hash[Vector[x,y]] = Tile.new(Vector[x,y])
       end
     end
@@ -153,7 +149,7 @@ class Terrain
 
   def create_ground()
     for y in (GAME_HEIGHT / 2).floor...(GAME_HEIGHT + 1)
-      for x in 1...(GAME_WIDTH + 1)
+      for x in 1...(200)
         if y == (GAME_HEIGHT / 2).floor
           @terrain_hash[Vector[x,y]].type = 1
         else
@@ -184,11 +180,13 @@ class Tile
   end
 
   def is_clear_above
+    return false if MAP[@position + Vector[0, -1]] == nil
     return true if MAP[@position + Vector[0, -1]].is_navigable
     return false
   end
 
   def is_clear_below
+    return false if MAP[@position + Vector[0, -1]] == nil
     return true if MAP[@position + Vector[0, 1]].is_navigable
     return false
   end
@@ -332,6 +330,8 @@ class Player < Entity
 end
 
 def handle_input(input)
+  #if facing direction and valid navigable tile, go
+  #else turn to face direction
   case 
   when input == KEYS['w']
     if (PLAYER.crosshairs == PLAYER.position - Vector[0,1]) && MAP[PLAYER.crosshairs].is_navigable
@@ -352,9 +352,6 @@ def handle_input(input)
   when input == KEYS['a']
     if PLAYER.crosshairs == PLAYER.position - Vector[1,0] 
       if MAP[PLAYER.crosshairs].is_navigable
-        if PLAYER.position[0] - CAMERA.position[0] <= CAMERA.buffer_x
-          CAMERA.position -= Vector[1,0]
-        end
         PLAYER.position -= Vector[1,0]
         PLAYER.crosshairs -= Vector[1,0]
       elsif MAP[PLAYER.crosshairs].is_clear_above
@@ -371,9 +368,6 @@ def handle_input(input)
   when input == KEYS['d']
     if PLAYER.crosshairs == PLAYER.position + Vector[1,0] 
       if MAP[PLAYER.crosshairs].is_navigable
-        if GAME_WIDTH - PLAYER.position[0] + CAMERA.position[0] <= CAMERA.buffer_x
-          CAMERA.position += Vector[1,0]
-        end
         PLAYER.position += Vector[1,0]
         PLAYER.crosshairs += Vector[1,0]
       elsif MAP[PLAYER.crosshairs].is_clear_above
@@ -423,6 +417,7 @@ begin
   Ncurses.stdscr.keypad(true)     # turn on keypad mode
 
   Ncurses.start_color
+  Ncurses.init_pair(99, Ncurses::COLOR_RED, Ncurses::COLOR_RED) # DEBUG COLOR
   Ncurses.init_pair(0, Ncurses::COLOR_WHITE, Ncurses::COLOR_BLACK)
   Ncurses.init_pair(1, Ncurses::COLOR_GREEN, Ncurses::COLOR_BLACK)
   Ncurses.init_pair(2, Ncurses::COLOR_BLACK, Ncurses::COLOR_WHITE)
@@ -434,7 +429,7 @@ begin
   CHUNK_HEIGHT = 200
   CHUNK_WIDTH = 200
   ENTITIES = []
-  KEYS = Hash[
+  KEYS = {
     'w' => 119,
     'a' => 97,
     's' => 115,
@@ -456,19 +451,20 @@ begin
     '7' => 55,
     '8' => 56,
     '9' => 57
-  ]
+  }
   TILES = [
     " ".to_s, # 0
     "░".to_s, # 1
     "░".to_s, # 2
   ]
 
-  CAMERA = Camera.new
+  
   window_manager = WindowManager.new()
   terrain = Terrain.new()
   terrain.create_ground
   MAP = terrain.terrain_hash
   PLAYER = Player.new(Vector[50,10])
+  CAMERA = Camera.new
   window_manager.draw_terrain
   window_manager.draw_entities(ENTITIES)
   window_manager.hud_message("Press esc to quit")
@@ -479,14 +475,14 @@ begin
   input = 0
   Ncurses.curs_set(0)
   while(input != KEYS['ESC'])
+    CAMERA.update
     window_manager.erase_windows()
     handle_input(input)
     window_manager.draw_terrain
     
     window_manager.draw_entities(ENTITIES)
-    window_manager.hud_message("Press esc to quit")
-    window_manager.hud_message("Player: ("+PLAYER.position[0].to_s+
-    ", "+PLAYER.position[1].to_s+")")
+    window_manager.hud_message("Camera: ("+CAMERA.position[0].to_s+
+    ", "+CAMERA.position[1].to_s+")")
     window_manager.display_inventory
     window_manager.to_virtual_screen
    
