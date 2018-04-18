@@ -76,8 +76,7 @@ end
  
 class Terrain
   attr_accessor :terrain_hash
-  def initialize(window_manager)
-    @window_manager = window_manager
+  def initialize()
     @terrain_hash = Hash.new
     for y in 1...(GAME_HEIGHT + 1)
       for x in 1...(GAME_WIDTH + 1)
@@ -107,6 +106,38 @@ class Tile
     @position = position
     @type = 0 # Defaults to empty
   end
+
+  def is_navigable
+    return false if type != 0 # Solid
+    return true if MAP[@position + Vector[0,1]].type != 0 # On Ground
+    return true if (MAP[@position + Vector[1,0]].type !=0 || MAP[@position - Vector[1,0]].type !=0) # Wall-adjacent
+    return true if (MAP[@position + Vector[1,1]].type !=0 || MAP[@position + Vector[-1,1]].type !=0) #Leddge
+    return false # Mid-air
+  end
+
+
+end
+
+class EntitiesManager
+  attr_accessor :entities
+  def initialize
+    @entities = []
+  end
+
+  def update
+    # Runs once per frame
+    self.ground_entities
+  end
+
+  def ground_entities
+    # Checks to see if anyone is off the ground and grounds them
+    for i in 0...@entities.length
+      while !@entities[i].is_grounded
+        @entities[i].position += Vector[0,1]
+      end
+    end
+  end
+  
 end
 
 class Entity
@@ -114,8 +145,13 @@ class Entity
   def initialize(position, char = 33)
     ENTITIES << self
     @position = position
-
   end
+
+  def is_grounded
+    return false if MAP[@postion + Vector[0,1]].type == 0
+    return true
+  end
+
 end
 
 class Player < Entity
@@ -123,7 +159,7 @@ class Player < Entity
   def initialize(position)
     super(position)
     @char = 64
-    while TERRAIN_H[@position + Vector[0,1]].type == 0
+    while MAP[@position + Vector[0,1]].type == 0
       @position += Vector[0,1]
     end
     @crosshairs = @position + Vector[1,0]
@@ -134,15 +170,15 @@ end
 def handle_input(input)
   case input
   when KEYS['w']
-    if PLAYER.crosshairs == PLAYER.position - Vector[0,1]
+    if (PLAYER.crosshairs == PLAYER.position - Vector[0,1]) && MAP[PLAYER.crosshairs].is_navigable
       PLAYER.position -= Vector[0,1]
       PLAYER.crosshairs -= Vector[0,1]
     else
-      PLAYER.crosshairs = PLAYER.position - Vector[0,1]
+      PLAYER.crosshairs = PLAYER.position - Vector[0,1] 
     end
 
   when KEYS['s']
-    if PLAYER.crosshairs == PLAYER.position + Vector[0,1]
+    if PLAYER.crosshairs == PLAYER.position + Vector[0,1] && MAP[PLAYER.crosshairs].is_navigable
       PLAYER.position += Vector[0,1]
       PLAYER.crosshairs += Vector[0,1]
     else
@@ -150,7 +186,7 @@ def handle_input(input)
     end
 
   when KEYS['a']
-    if PLAYER.crosshairs == PLAYER.position - Vector[1,0]
+    if PLAYER.crosshairs == PLAYER.position - Vector[1,0] && MAP[PLAYER.crosshairs].is_navigable
       PLAYER.position -= Vector[1,0]
       PLAYER.crosshairs -= Vector[1,0]
     else
@@ -158,7 +194,7 @@ def handle_input(input)
     end
 
   when KEYS['d']
-    if PLAYER.crosshairs == PLAYER.position + Vector[1,0]
+    if PLAYER.crosshairs == PLAYER.position + Vector[1,0] && MAP[PLAYER.crosshairs].is_navigable
       PLAYER.position += Vector[1,0]
       PLAYER.crosshairs += Vector[1,0]
     else
@@ -166,9 +202,9 @@ def handle_input(input)
     end
   
   when KEYS['e']
-    if TERRAIN_H[PLAYER.crosshairs].type != 0
-      PLAYER.inventory << TERRAIN_H[PLAYER.crosshairs].type
-      TERRAIN_H[PLAYER.crosshairs].type = 0
+    if MAP[PLAYER.crosshairs].type != 0
+      PLAYER.inventory << MAP[PLAYER.crosshairs].type
+      MAP[PLAYER.crosshairs].type = 0
     end
   end
 end
@@ -206,11 +242,10 @@ begin
   ]
 
   window_manager = WindowManager.new()
-  terrain = Terrain.new(window_manager)
+  terrain = Terrain.new()
   terrain.create_ground
-  TERRAIN_H = terrain.terrain_hash
+  MAP = terrain.terrain_hash
   PLAYER = Player.new(Vector[1,1])
-  
   window_manager.draw_terrain(terrain.terrain_hash)
   window_manager.draw_entities(ENTITIES)
   window_manager.hud_message("Press esc to quit")
@@ -221,18 +256,16 @@ begin
   input = 0
   Ncurses.curs_set(0)
   while(input != KEYS['ESC'])
-    cursor_x = []
-    cursor_y = []
-    Ncurses.getyx(window_manager.game, cursor_y, cursor_x)
     handle_input(input)
     window_manager.draw_terrain(terrain.terrain_hash)
     
     window_manager.draw_entities(ENTITIES)
     window_manager.hud_message("Press esc to quit")
-    window_manager.hud_message("Cursor: (" + cursor_x.to_s + ", " + cursor_y.to_s + ")")
-    input = Ncurses.wgetch(window_manager.game)
+    window_manager.hud_message("Player: ("+PLAYER.position[0].to_s+
+    ", "+PLAYER.position[1].to_s+")")
     window_manager.to_virtual_screen
     Ncurses.doupdate()
+    input = Ncurses.wgetch(window_manager.game)
     
   end
 
