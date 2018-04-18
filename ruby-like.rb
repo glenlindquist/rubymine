@@ -16,7 +16,6 @@ class WindowManager
     @hud = Ncurses::WINDOW.new(Ncurses.LINES() - GAME_HEIGHT - 2, 0, GAME_HEIGHT + 2, 0)
     @game.border(*([0]*8))
     @hud.border(*([0]*8))
-
   end
 
   def to_virtual_screen
@@ -37,7 +36,7 @@ class WindowManager
 
   def display_inventory()
     (1..9).each do |i|
-      if i == PLAYER.active_inventory
+      if i == PLAYER.hotbar_active
         @hud.attron(Ncurses.COLOR_PAIR(2))
         @hud.mvaddstr(1, (i * 6) - 5, i.to_s)
         @hud.mvaddstr(2, (i * 6) - 5, "v")
@@ -47,13 +46,13 @@ class WindowManager
         @hud.mvaddstr(2, (i * 6) - 5, "v")
       end
     end
-    i = 1
-    PLAYER.inventory.each do |type, quantity|
-      @hud.attron(Ncurses.COLOR_PAIR(type))
-      @hud.mvaddstr(3, i, TILES[type])
-      @hud.attroff(Ncurses.COLOR_PAIR(type))
-      @hud.mvaddstr(3, i + 1, ": " + quantity.to_s)
-      i *= 7
+    PLAYER.hotbar.each do |slot, item|
+      if PLAYER.hotbar[slot] != nil
+        @hud.attron(Ncurses.COLOR_PAIR(PLAYER.hotbar[slot]))
+        @hud.mvaddstr(3, (slot * 6) - 5, TILES[PLAYER.hotbar[slot]])
+        @hud.attroff(Ncurses.COLOR_PAIR(PLAYER.hotbar[slot]))
+        @hud.mvaddstr(3, (slot * 6) - 4, ": " + PLAYER.inventory[item].to_s)
+      end
     end
   end
 
@@ -61,41 +60,75 @@ class WindowManager
     draw_terrain(terrain_hash)
     draw_entities(entities)
   end
+  #  FIND A WAY TO DRAW EVERYTHING OFFSET BY "CAMERA" POSITION
 
-  def draw_terrain(terrain_hash)
-    terrain_hash.each do |position, tile|
-      case tile.type
-      when 0
-        @game.mvaddch(position[1],position[0], 32)
-      when 1
-        @game.attron(Ncurses.COLOR_PAIR(1))
-        @game.mvaddstr(position[1],position[0], "░".to_s)
-        #@game.mvaddch(position[1],position[0], 35)
-        @game.attroff(Ncurses.COLOR_PAIR(1))
-      when 2
-        @game.attron(Ncurses.COLOR_PAIR(2))
-        @game.mvaddstr(position[1],position[0], "░".to_s)
-        #@game.mvaddch(position[1],position[0], 97 | Ncurses::A_ALTCHARSET)
-        @game.attroff(Ncurses.COLOR_PAIR(2))
-      else
-        @game.mvaddch(position[1],position[0], 32)
+  def draw_terrain()
+    for y in 1...(GAME_HEIGHT + 1)
+      for x in 1...(GAME_WIDTH + 1)
+        draw_tile(x, y)
       end
     end
   end
 
+  #Remember to add +CAMERA.position
+  def draw_tile(x, y)
+    if MAP[Vector[x,y] + CAMERA.position] == nil
+      @game.mvaddstr(y, x, TILES[0])
+    else
+      tile_type = MAP[Vector[x,y] + CAMERA.position].type
+      @game.attron(Ncurses.COLOR_PAIR(tile_type))
+      @game.mvaddstr(y, x, TILES[tile_type])
+      @game.attroff(Ncurses.COLOR_PAIR(tile_type))
+    end
+  end
+
+  #def draw_terrain(terrain_hash)
+  #  terrain_hash.each do |position, tile|
+  #    case tile.type
+  #    when 0
+  #      @game.mvaddch(position[1],position[0], 32)
+  #    when 1
+  #      @game.attron(Ncurses.COLOR_PAIR(1))
+  #      @game.mvaddstr(position[1],position[0], "░".to_s)
+  #      @game.attroff(Ncurses.COLOR_PAIR(1))
+  #    when 2
+  #      @game.attron(Ncurses.COLOR_PAIR(2))
+  #      @game.mvaddstr(position[1],position[0], "░".to_s)
+  #      @game.attroff(Ncurses.COLOR_PAIR(2))
+  #    else
+  #      @game.mvaddch(position[1],position[0], 32)
+  #    end
+  #  end
+  #end
+
   def draw_entities(entities)
     for i in 0...entities.length
+      position_x = entities[i].position[0] - CAMERA.position[0]
+      position_y = entities[i].position[1] - CAMERA.position[1]
       @game.attron(Ncurses.COLOR_PAIR(4))
-      @game.mvaddstr(entities[i].position[1], entities[i].position[0], entities[i].char)
+      @game.mvaddstr(position_y, position_x, entities[i].char)
       @game.attroff(Ncurses.COLOR_PAIR(4))
       if entities[i].crosshairs
         @game.attron(Ncurses.COLOR_PAIR(3))
-        @game.mvaddstr(entities[i].crosshairs[1], entities[i].crosshairs[0], "+".to_s)
+        @game.mvaddstr(
+          entities[i].crosshairs[1] - CAMERA.position[1],
+          entities[i].crosshairs[0] - CAMERA.position[0],
+          "+".to_s
+        )
         @game.attroff(Ncurses.COLOR_PAIR(3))
       end
     end
   end
 
+end
+
+class Camera
+  attr_accessor :position, :buffer_x, :buffer_y
+  def initialize(buffer_x = 10, buffer_y = 10)
+    @position = Vector[0,0]
+    @buffer_x = buffer_x
+    @buffer_y = buffer_y
+  end
 end
 
 class Position
@@ -143,9 +176,21 @@ class Tile
   def is_navigable
     return false if type != 0 # Solid
     return true if MAP[@position + Vector[0,1]].type != 0 # On Ground
-    return true if (MAP[@position + Vector[1,0]].type !=0 || MAP[@position - Vector[1,0]].type !=0) # Wall-adjacent
-    return true if (MAP[@position + Vector[1,1]].type !=0 || MAP[@position + Vector[-1,1]].type !=0) #Ledge
+    return true if (MAP[@position + Vector[1,0]].type !=0 ||
+      MAP[@position - Vector[1,0]].type !=0) # Wall-adjacent
+    return true if (MAP[@position + Vector[1,1]].type !=0 ||
+      MAP[@position + Vector[-1,1]].type !=0) #Ledge
     return false # Mid-air or nil
+  end
+
+  def is_clear_above
+    return true if MAP[@position + Vector[0, -1]].is_navigable
+    return false
+  end
+
+  def is_clear_below
+    return true if MAP[@position + Vector[0, 1]].is_navigable
+    return false
   end
 
 end
@@ -156,6 +201,7 @@ class Chunk
     @position = position
     @tiles = {}
     create_tiles()
+    create_default_chunk()
   end
 
   def create_tiles
@@ -166,6 +212,19 @@ class Chunk
     end
   end
 
+  def create_default_chunk
+    for y in (CHUNK_HEIGHT / 2).floor...(CHUNK_HEIGHT + 1)
+      for x in 1...(CHUNK_WIDTH + 1)
+        if y == (CHUNK_HEIGHT / 2).floor
+          @tiles[@position + Vector[x,y]].type = 1
+        else
+          @tiles[@position + Vector[x,y]].type = 2
+        end
+      end
+    end
+  end
+
+
 end
 
 class Map
@@ -175,8 +234,7 @@ class Map
     load_chunks()
   end
   def load_chunks
-    if @chunks.length == 0
-    end
+    @chunks[Vector[1,1]] = Chunk.new(Vector[1,1])
   end
 end
 
@@ -217,7 +275,7 @@ class Entity
 end
 
 class Player < Entity
-  attr_accessor :crosshairs, :inventory, :active_inventory
+  attr_accessor :crosshairs, :inventory, :hotbar, :hotbar_active
   def initialize(position)
     super(position)
     @char = "☺".to_s
@@ -226,13 +284,30 @@ class Player < Entity
     end
     @crosshairs = @position + Vector[1,0]
     @inventory = Hash.new
-    @active_inventory = 1
+    @hotbar_active = 1
+    @hotbar = {
+      1 => nil,
+      2 => nil,
+      3 => nil,
+      4 => nil,
+      5 => nil,
+      6 => nil,
+      7 => nil,
+      8 => nil,
+      9 => nil,
+    }
   end
 
   def add_to_inventory(type)
     if @inventory[type] != nil
       @inventory[type] += 1
     else
+      @hotbar.each do |k, v|
+        if @hotbar[k] == nil
+          @hotbar[k] = type
+          break
+        end
+      end
       @inventory[type] = 1
     end
   end
@@ -246,11 +321,15 @@ class Player < Entity
     end
     if @inventory[type] == 0
       @inventory.delete(type)
+      @hotbar.each do |k, v|
+        if @hotbar[k] == type
+          @hotbar[k] = nil
+        end
+      end
     end
   end
 
 end
-
 
 def handle_input(input)
   case 
@@ -271,17 +350,39 @@ def handle_input(input)
     end
 
   when input == KEYS['a']
-    if PLAYER.crosshairs == PLAYER.position - Vector[1,0] && MAP[PLAYER.crosshairs].is_navigable
-      PLAYER.position -= Vector[1,0]
-      PLAYER.crosshairs -= Vector[1,0]
+    if PLAYER.crosshairs == PLAYER.position - Vector[1,0] 
+      if MAP[PLAYER.crosshairs].is_navigable
+        if PLAYER.position[0] - CAMERA.position[0] <= CAMERA.buffer_x
+          CAMERA.position -= Vector[1,0]
+        end
+        PLAYER.position -= Vector[1,0]
+        PLAYER.crosshairs -= Vector[1,0]
+      elsif MAP[PLAYER.crosshairs].is_clear_above
+        PLAYER.position -= Vector[1,1]
+        PLAYER.crosshairs -= Vector[1,1]
+      elsif MAP[PLAYER.crosshairs].is_clear_below
+        PLAYER.position -= Vector[1,-1]
+        PLAYER.crosshairs -= Vector[1,-1]
+      end
     else
       PLAYER.crosshairs = PLAYER.position - Vector[1,0]
     end
 
   when input == KEYS['d']
-    if PLAYER.crosshairs == PLAYER.position + Vector[1,0] && MAP[PLAYER.crosshairs].is_navigable
-      PLAYER.position += Vector[1,0]
-      PLAYER.crosshairs += Vector[1,0]
+    if PLAYER.crosshairs == PLAYER.position + Vector[1,0] 
+      if MAP[PLAYER.crosshairs].is_navigable
+        if GAME_WIDTH - PLAYER.position[0] + CAMERA.position[0] <= CAMERA.buffer_x
+          CAMERA.position += Vector[1,0]
+        end
+        PLAYER.position += Vector[1,0]
+        PLAYER.crosshairs += Vector[1,0]
+      elsif MAP[PLAYER.crosshairs].is_clear_above
+        PLAYER.position += Vector[1,-1]
+        PLAYER.crosshairs += Vector[1,-1]
+      elsif MAP[PLAYER.crosshairs].is_clear_below
+        PLAYER.position += Vector[1,1]
+        PLAYER.crosshairs += Vector[1,1]
+      end
     else
       PLAYER.crosshairs = PLAYER.position + Vector[1,0]
     end
@@ -293,17 +394,18 @@ def handle_input(input)
     end
 
   when input == KEYS['q']
-    if PLAYER.inventory[PLAYER.active_inventory] == nil
+    if PLAYER.inventory[PLAYER.hotbar[PLAYER.hotbar_active]] == nil
       return
     end
     if MAP[PLAYER.crosshairs].type == 0
-      PLAYER.remove_from_inventory(PLAYER.active_inventory)
-      MAP[PLAYER.crosshairs].type = PLAYER.active_inventory
+      MAP[PLAYER.crosshairs].type = PLAYER.hotbar[PLAYER.hotbar_active]
+      PLAYER.remove_from_inventory(PLAYER.hotbar[PLAYER.hotbar_active])
+      
     end
   when input.between?(49,57)
     # Manages inventory slots
     # ASCII codes for 1-9 are 49-57
-    PLAYER.active_inventory = input - 48
+    PLAYER.hotbar_active = input - 48
   end
 
 end
@@ -321,6 +423,7 @@ begin
   Ncurses.stdscr.keypad(true)     # turn on keypad mode
 
   Ncurses.start_color
+  Ncurses.init_pair(0, Ncurses::COLOR_WHITE, Ncurses::COLOR_BLACK)
   Ncurses.init_pair(1, Ncurses::COLOR_GREEN, Ncurses::COLOR_BLACK)
   Ncurses.init_pair(2, Ncurses::COLOR_BLACK, Ncurses::COLOR_WHITE)
   Ncurses.init_pair(3, Ncurses::COLOR_RED, Ncurses::COLOR_BLACK)
@@ -328,6 +431,8 @@ begin
 
   GAME_HEIGHT = (Ncurses.LINES() * 0.8).floor - 2
   GAME_WIDTH = Ncurses.COLS() - 2
+  CHUNK_HEIGHT = 200
+  CHUNK_WIDTH = 200
   ENTITIES = []
   KEYS = Hash[
     'w' => 119,
@@ -358,12 +463,13 @@ begin
     "░".to_s, # 2
   ]
 
+  CAMERA = Camera.new
   window_manager = WindowManager.new()
   terrain = Terrain.new()
   terrain.create_ground
   MAP = terrain.terrain_hash
-  PLAYER = Player.new(Vector[1,1])
-  window_manager.draw_terrain(terrain.terrain_hash)
+  PLAYER = Player.new(Vector[50,10])
+  window_manager.draw_terrain
   window_manager.draw_entities(ENTITIES)
   window_manager.hud_message("Press esc to quit")
   window_manager.to_virtual_screen
@@ -375,7 +481,7 @@ begin
   while(input != KEYS['ESC'])
     window_manager.erase_windows()
     handle_input(input)
-    window_manager.draw_terrain(terrain.terrain_hash)
+    window_manager.draw_terrain
     
     window_manager.draw_entities(ENTITIES)
     window_manager.hud_message("Press esc to quit")
