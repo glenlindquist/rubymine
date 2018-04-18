@@ -119,7 +119,7 @@ class Entity
 end
 
 class Player < Entity
-  attr_accessor :crosshairs
+  attr_accessor :crosshairs, :inventory
   def initialize(position)
     super(position)
     @char = 64
@@ -127,12 +127,13 @@ class Player < Entity
       @position += Vector[0,1]
     end
     @crosshairs = @position + Vector[1,0]
+    @inventory = []
   end
 end
 
-def handle_input(k)
-  case k
-  when KEYS['W']
+def handle_input(input)
+  case input
+  when KEYS['w']
     if PLAYER.crosshairs == PLAYER.position - Vector[0,1]
       PLAYER.position -= Vector[0,1]
       PLAYER.crosshairs -= Vector[0,1]
@@ -140,7 +141,7 @@ def handle_input(k)
       PLAYER.crosshairs = PLAYER.position - Vector[0,1]
     end
 
-  when KEYS['S']
+  when KEYS['s']
     if PLAYER.crosshairs == PLAYER.position + Vector[0,1]
       PLAYER.position += Vector[0,1]
       PLAYER.crosshairs += Vector[0,1]
@@ -148,7 +149,7 @@ def handle_input(k)
       PLAYER.crosshairs = PLAYER.position + Vector[0,1]
     end
 
-  when KEYS['A']
+  when KEYS['a']
     if PLAYER.crosshairs == PLAYER.position - Vector[1,0]
       PLAYER.position -= Vector[1,0]
       PLAYER.crosshairs -= Vector[1,0]
@@ -156,12 +157,18 @@ def handle_input(k)
       PLAYER.crosshairs = PLAYER.position - Vector[1,0]
     end
 
-  when KEYS['D']
+  when KEYS['d']
     if PLAYER.crosshairs == PLAYER.position + Vector[1,0]
       PLAYER.position += Vector[1,0]
       PLAYER.crosshairs += Vector[1,0]
     else
       PLAYER.crosshairs = PLAYER.position + Vector[1,0]
+    end
+  
+  when KEYS['e']
+    if TERRAIN_H[PLAYER.crosshairs].type != 0
+      PLAYER.inventory << TERRAIN_H[PLAYER.crosshairs].type
+      TERRAIN_H[PLAYER.crosshairs].type = 0
     end
   end
 end
@@ -185,15 +192,16 @@ begin
   GAME_WIDTH = Ncurses.COLS() - 2
   ENTITIES = []
   KEYS = Hash[
-    'W' => 119,
-    'A' => 97,
-    'S' => 115,
-    'D' => 100,
+    'w' => 119,
+    'a' => 97,
+    's' => 115,
+    'd' => 100,
+    'e' => 101,
     'POUND' => 35,
     'SPACE' => 32,
     'AT' => 64,
     'ESC' => 27,
-    'Y' => 121,
+    'y' => 121,
     'PLUS' => 43
   ]
 
@@ -202,7 +210,7 @@ begin
   terrain.create_ground
   TERRAIN_H = terrain.terrain_hash
   PLAYER = Player.new(Vector[1,1])
-
+  
   window_manager.draw_terrain(terrain.terrain_hash)
   window_manager.draw_entities(ENTITIES)
   window_manager.hud_message("Press esc to quit")
@@ -218,6 +226,7 @@ begin
     Ncurses.getyx(window_manager.game, cursor_y, cursor_x)
     handle_input(input)
     window_manager.draw_terrain(terrain.terrain_hash)
+    
     window_manager.draw_entities(ENTITIES)
     window_manager.hud_message("Press esc to quit")
     window_manager.hud_message("Cursor: (" + cursor_x.to_s + ", " + cursor_y.to_s + ")")
