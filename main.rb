@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require "ncurses"
+#gem ncurses-ruby
 require "matrix"
 
 BEGIN{
